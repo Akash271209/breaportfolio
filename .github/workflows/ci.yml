@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: "Regenerate Playwright visual baselines and upload as an artifact"
+        type: boolean
+        default: false
+
+jobs:
+  lint-and-build:
+    name: Lint, audit & build
+    runs-on: ubuntu-latest
+    outputs:
+      build_ok: ${{ steps.build.outcome }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build (includes asset audit)
+        id: build
+        run: npm run build
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+  broken-links:
+    name: Broken link checker
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Check internal & external links
+        run: npm run check:links
+
+  lighthouse:
+    name: Lighthouse CI (Performance >= 80, Accessibility >= 90)
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run Lighthouse CI
+        run: npm run lhci
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: .lighthouseci
+
+  playwright:
+    name: Playwright tests (functional + visual regression)
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run Playwright tests
+        if: ${{ github.event.inputs.update_snapshots != 'true' }}
+        run: npx playwright test
+      - name: Regenerate visual baselines
+        if: ${{ github.event.inputs.update_snapshots == 'true' }}
+        run: npx playwright test tests/e2e/visual.spec.js --update-snapshots
+      - name: Upload updated snapshots
+        if: ${{ github.event.inputs.update_snapshots == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-snapshots
+          path: tests/e2e/visual.spec.js-snapshots
+      - name: Upload Playwright report
+        if: always() && github.event.inputs.update_snapshots != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14
+
+  deploy-gate:
+    name: Deploy gate
+    runs-on: ubuntu-latest
+    needs: [lint-and-build, broken-links, lighthouse, playwright]
+    if: always()
+    steps:
+      - name: Evaluate results & write summary
+        run: |
+          echo "## Deployment gate result" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          status_lint="${{ needs.lint-and-build.result }}"
+          status_links="${{ needs.broken-links.result }}"
+          status_lhci="${{ needs.lighthouse.result }}"
+          status_pw="${{ needs.playwright.result }}"
+
+          fail=0
+
+          if [ "$status_lint" != "success" ]; then
+            fail=1
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### ❌ Lint / build / asset audit failed
+          **Likely causes & fixes:**
+          - Missing image referenced in `src/**` but not present in `public/` — add the file or fix the path (`scripts/audit-assets.js` lists it).
+          - `public/favicon.ico` missing — copy it into `public/`.
+          - ESLint error (e.g. unused import, hook rule violation) — run `npm run lint` locally and fix reported lines.
+          - Build/compile error — run `npm run build` locally to see the stack trace.
+          EOF
+          fi
+
+          if [ "$status_links" != "success" ]; then
+            fail=1
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### ❌ Broken link check failed
+          **Likely causes & fixes:**
+          - An internal route (`/`, `/gallery`, `/bio`, `/contact`) returned a non-200 — check routing in `src/App.jsx` and the Surge `200.html` SPA fallback.
+          - An external link (Instagram, exhibition links, etc.) is 404/unreachable — update or remove the dead link in `src/pages/*.jsx`.
+          - Run `npm run check:links` locally to see exactly which URL failed.
+          EOF
+          fi
+
+          if [ "$status_lhci" != "success" ]; then
+            fail=1
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### ❌ Lighthouse CI failed (Performance < 80 or Accessibility < 90)
+          **Likely causes & fixes:**
+          - **Performance**: new large/unoptimized images — compress with `sips -Z 1600 -s formatOptions 78 file.jpg --out file.jpg` (flagged by `npm run audit`); render-blocking CSS/fonts; large new JS dependencies.
+          - **Accessibility**: missing `alt` text on images, insufficient color contrast, missing form labels, or heading-order issues introduced by a recent edit.
+          - Download the `lighthouse-report` artifact from this run and open the `.html` report for the specific failing audits.
+          EOF
+          fi
+
+          if [ "$status_pw" != "success" ]; then
+            fail=1
+            cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ### ❌ Playwright tests failed (functional or visual regression)
+          **Likely causes & fixes:**
+          - **Functional failure** (homepage/gallery/contact/navigation): a recent change broke page structure, a class name, or a link — check the failing test name and matching component in `src/pages/` or `src/components/`.
+          - **Visual regression failure**: layout/CSS changed unexpectedly — download the `playwright-report` artifact, compare the `expected` vs `actual` vs `diff` images.
+            - If the visual change is **intentional**, re-run this workflow with the "update_snapshots" input enabled, download the `visual-snapshots` artifact, and commit the updated PNGs to `tests/e2e/visual.spec.js-snapshots/`.
+          EOF
+          fi
+
+          if [ "$fail" = "1" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**🚫 Deployment should NOT proceed until the above issues are resolved.**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          else
+            echo "✅ All checks passed — safe to deploy." >> "$GITHUB_STEP_SUMMARY"
+          fi
