@@ -1,0 +1,38 @@
+{
+  "date": "2026-06-15",
+  "lighthouse": {
+    "/": {
+      "performance": 97,
+      "accessibility": 100
+    },
+    "/gallery": {
+      "performance": 96,
+      "accessibility": 100
+    },
+    "/bio": {
+      "performance": 92,
+      "accessibility": 100
+    },
+    "/contact": {
+      "performance": 97,
+      "accessibility": 100
+    }
+  },
+  "images": {
+    "totalCount": 13,
+    "oversizedCount": 0,
+    "largestKB": 409,
+    "oversized": []
+  },
+  "links": {
+    "internalErrors": 0,
+    "externalErrors": 0,
+    "placeholderCount": 4,
+    "totalLinksChecked": 6,
+    "errors": []
+  },
+  "sentry": null,
+  "uptime": null,
+  "ci": null,
+  "degradationCount": 0
+}

@@ -28,6 +28,11 @@ blob-report
 .lighthouseci
 lhci_reports
 
+# Weekly report scratch files (history snapshots in .reports/history are tracked)
+.reports/image-sizes.json
+.reports/link-check.json
+.reports/latest-report.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

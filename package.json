@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "test:e2e:update-snapshots": "playwright test tests/e2e/visual.spec.js --update-snapshots",
     "lhci": "lhci autorun --config=./lighthouserc.cjs",
-    "check:links": "node scripts/check-links.js"
+    "check:links": "node scripts/check-links.js",
+    "report:weekly": "node scripts/weekly-report.js"
   },
   "dependencies": {
     "@sentry/react": "^10.58.0",

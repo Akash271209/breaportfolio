@@ -2,6 +2,7 @@
 // resolves and every internal/external link returns a non-error status.
 import { spawn } from "child_process";
 import { setTimeout as sleep } from "timers/promises";
+import { writeFileSync, mkdirSync } from "fs";
 
 const PORT = 4600;
 const BASE = `http://localhost:${PORT}`;
@@ -82,9 +83,11 @@ async function extractLinks() {
 
 async function checkExternalLinks(links) {
   const errors = [];
+  let placeholderCount = 0;
   for (const link of links) {
     if (KNOWN_PLACEHOLDER_LINKS.includes(link)) {
       console.warn(`⚠️  Skipping known placeholder link (needs a real URL): ${link}`);
+      placeholderCount++;
       continue;
     }
     if (link.startsWith("mailto:")) {
@@ -104,23 +107,46 @@ async function checkExternalLinks(links) {
       errors.push(`External link ${link} failed: ${e.message}`);
     }
   }
-  return errors;
+  return { errors, placeholderCount };
 }
 
 async function main() {
   const server = startServer();
-  let errors = [];
+  let internalErrors = [];
+  let externalErrors = [];
+  let placeholderCount = 0;
+  let linkCount = 0;
   try {
     await waitForServer();
-    errors.push(...(await checkInternalRoutes()));
+    internalErrors = await checkInternalRoutes();
 
     const links = await extractLinks();
+    linkCount = links.length;
     console.log(`Found ${links.length} external/mailto link(s) to check:`, links);
-    errors.push(...(await checkExternalLinks(links)));
+    const result = await checkExternalLinks(links);
+    externalErrors = result.errors;
+    placeholderCount = result.placeholderCount;
   } finally {
     server.kill();
   }
 
+  mkdirSync(".reports", { recursive: true });
+  writeFileSync(
+    ".reports/link-check.json",
+    JSON.stringify(
+      {
+        internalErrors: internalErrors.length,
+        externalErrors: externalErrors.length,
+        placeholderCount,
+        totalLinksChecked: linkCount,
+        errors: [...internalErrors, ...externalErrors],
+      },
+      null,
+      2
+    )
+  );
+
+  const errors = [...internalErrors, ...externalErrors];
   if (errors.length) {
     console.error("\nLink check failed:");
     for (const e of errors) console.error("✖ " + e);

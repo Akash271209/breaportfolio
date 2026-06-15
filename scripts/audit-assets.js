@@ -1,6 +1,6 @@
 // Pre-build checks that catch the broken-asset/oversized-image class of bugs
 // before they reach production.
-import { existsSync, readdirSync, statSync, readFileSync } from "fs";
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -53,6 +53,24 @@ for (const file of imageFiles) {
     );
   }
 }
+
+// Write a machine-readable image size report for the weekly health report.
+const imageReport = imageFiles.map((file) => ({
+  path: file.replace(root + "/", ""),
+  sizeKB: Math.round(statSync(file).size / 1024),
+}));
+mkdirSync(join(root, ".reports"), { recursive: true });
+writeFileSync(
+  join(root, ".reports", "image-sizes.json"),
+  JSON.stringify(
+    {
+      images: imageReport,
+      oversized: imageReport.filter((i) => i.sizeKB * 1024 > MAX_IMAGE_BYTES),
+    },
+    null,
+    2
+  )
+);
 
 for (const w of warnings) console.warn("⚠️  " + w);
 for (const e of errors) console.error("✖ " + e);
