@@ -1,6 +1,7 @@
 // Aggregates uptime, Lighthouse, Sentry, broken-link, image-size and CI data
 // into a weekly health report. Compares against last week's snapshot and
-// fixed thresholds, then opens a GitHub issue if anything has degraded.
+// fixed thresholds, then opens a GitHub issue with the report every run
+// (labeled "degraded" too if any threshold/regression was found).
 //
 // Expects to run after `npm run build`, `npm run lhci` and `npm run check:links`
 // (their output files are read from .lighthouseci/ and .reports/).
@@ -278,16 +279,30 @@ function buildMarkdown(report, issues) {
 }
 
 function createIssue(report, md) {
-  const title = `Weekly health report ${report.date}: ${report.degradationCount} issue(s) detected`;
-  try {
-    execSync("gh label create automated-report --color FBCA04 --description 'Auto-generated weekly health report' --force", {
-      stdio: "ignore",
-    });
-  } catch {
-    // label may already exist or gh may lack permission; ignore
+  const degraded = report.degradationCount > 0;
+  const title = degraded
+    ? `Weekly health report ${report.date}: ${report.degradationCount} issue(s) detected`
+    : `Weekly health report ${report.date}: all clear`;
+
+  const labels = ["automated-report"];
+  if (degraded) labels.push("degraded");
+
+  for (const [label, color, description] of [
+    ["automated-report", "FBCA04", "Auto-generated weekly health report"],
+    ["degraded", "D93F0B", "Weekly health report found a degraded metric"],
+  ]) {
+    try {
+      execSync(`gh label create ${label} --color ${color} --description ${JSON.stringify(description)} --force`, {
+        stdio: "ignore",
+      });
+    } catch {
+      // label may already exist or gh may lack permission; ignore
+    }
   }
+
+  const labelArgs = labels.map((l) => `--label ${l}`).join(" ");
   try {
-    execSync(`gh issue create --title ${JSON.stringify(title)} --body-file - --label automated-report`, {
+    execSync(`gh issue create --title ${JSON.stringify(title)} --body-file - ${labelArgs}`, {
       input: md,
       encoding: "utf8",
     });
@@ -321,9 +336,13 @@ async function main() {
 
   console.log(md);
 
-  if (issues.length && process.env.GITHUB_ACTIONS) {
+  if (process.env.GITHUB_ACTIONS) {
     createIssue(report, md);
-    console.log(`\nOpened a GitHub issue for ${issues.length} degradation(s).`);
+    console.log(
+      issues.length
+        ? `\nOpened a GitHub issue for ${issues.length} degradation(s).`
+        : "\nOpened a GitHub issue with the all-clear weekly report."
+    );
   } else if (issues.length) {
     console.log(`\n${issues.length} degradation(s) detected (no GitHub issue created — not running in GitHub Actions).`);
   } else {
