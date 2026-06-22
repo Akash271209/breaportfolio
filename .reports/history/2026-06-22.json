@@ -1,0 +1,44 @@
+{
+  "date": "2026-06-22",
+  "lighthouse": {
+    "/": {
+      "performance": 92,
+      "accessibility": 100
+    },
+    "/gallery": {
+      "performance": 94,
+      "accessibility": 100
+    },
+    "/bio": {
+      "performance": 96,
+      "accessibility": 100
+    },
+    "/contact": {
+      "performance": 97,
+      "accessibility": 100
+    }
+  },
+  "images": {
+    "totalCount": 13,
+    "oversizedCount": 0,
+    "largestKB": 409,
+    "oversized": []
+  },
+  "links": {
+    "internalErrors": 0,
+    "externalErrors": 1,
+    "placeholderCount": 4,
+    "totalLinksChecked": 6,
+    "errors": [
+      "External link https://www.instagram.com/brea_freeburn/ returned 429"
+    ]
+  },
+  "sentry": null,
+  "uptime": null,
+  "ci": {
+    "totalRuns7d": 1,
+    "failedRuns7d": 0,
+    "failedRunUrls": []
+  },
+  "degradationCount": 1
+}
